@@ -8,7 +8,7 @@ RUN apt-get update && \
 
 ENV REPO_URL https://github.com/aidungeon/aidungeon/tarball/339a537
 
-COPY . /
-RUN pip install aioredis discord.py
 RUN curl -LJ "$REPO_URL" | tar xz --strip-components=1 && ./download_model.sh
 RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install aioredis discord.py
+COPY process_queue.py /
