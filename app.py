@@ -84,7 +84,9 @@ async def game_next(ctx, *, text):
     bot.stop_time = bot.loop.time() + timeout
 
     await init_queue() if not bot.queue else None
-    if await bot.queue.llen('msgs') < max_msgs:
+    await bot.queue.setnx(f'{ctx.channel.id}_msgs', 0)
+    if int(await bot.queue.get(f'{ctx.channel.id}_msgs')) < max_msgs:
+        await bot.queue.incr(f'{ctx.channel.id}_msgs')
         await bot.queue.lpush('msgs', json.dumps(message))
     await init_inst(ctx) if not bot.inst_id else None
 

@@ -30,6 +30,7 @@ async def on_ready():
 
         # send response, delete message from queue
         await client.get_channel(channel).send(response)
+        await queue.decr(f'{channel}_msgs')
         await queue.lrem('pending', -1, message)
 
 
