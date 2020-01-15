@@ -20,6 +20,7 @@ async def send(session, url, data, params={}):
 
 
 async def create_inst(session):
+    bot.inst_id = 123456789
     # Query available machines
     params = {'q': json.dumps({
         'verified': {'eq': True}, 'external': {'eq': False},
@@ -35,7 +36,8 @@ async def create_inst(session):
     onstart = (
         f'export REDIS_URL={os.getenv("REDIS_EXTERN_URL")}\n'
         f'export DISCORD_TOKEN={os.getenv("DISCORD_TOKEN")}\n'
-        f'cd / && script -c "python process_queue.py" -a /root/process.log\n')
+        f'export LOG_URL={os.getenv("LOG_URL")}\n'
+        f'cd / && python process_queue.py\n')
     config = {
         'client_id': 'me', 'image': image,
         'runtype': 'ssh', 'disk': 15.0,
@@ -64,7 +66,6 @@ async def stop_inst():
 
 
 async def init_inst(ctx):
-    bot.inst_id = 123456789
     await ctx.send('Initializing instance, please wait')
     # reboot instance, or create one if none exists
     async with aiohttp.ClientSession() as session:

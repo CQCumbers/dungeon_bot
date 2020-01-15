@@ -1,14 +1,27 @@
-import os, json, asyncio, aioredis, discord
+import os, json, logging, asyncio, aioredis, discord
 from generator.gpt2.gpt2_generator import *
+from logging.handlers import SysLogHandler
+
+log_host, log_port = os.getenv('LOG_URL').rsplit(':', 1)
+syslog = SysLogHandler(address=(log_host, int(log_port)))
+log_format = '%(asctime)s vast-ai dungeon_worker: %(message)s'
+log_formatter = logging.Formatter(log_format, datefmt='%b %d %H:%M:%S')
+syslog.setFormatter(log_formatter)
+
+logger = logging.getLogger()
+logger.addHandler(syslog)
+logger.setLevel(logging.INFO)
 
 max_history = 20
 client = discord.Client()
 generator = GPT2Generator()
+logger.info('Worker instance started')
+
 
 @client.event
 async def on_ready():
     # connect & clear redis queue
-    queue = await aioredis.create_redis(os.getenv('REDIS_URL'))
+    queue = await aioredis.create_redis_pool(os.getenv('REDIS_URL'))
     loop = asyncio.get_event_loop()
     while await queue.llen('pending'):
         await queue.rpoplpush('pending', 'msgs')
@@ -16,7 +29,7 @@ async def on_ready():
     while True:
         # poll queue for messages, block here if empty
         message = await queue.brpoplpush('msgs', 'pending')
-        print(f'Processing message: {message}')
+        logger.info(f'Processing message: {message}')
         args = json.loads(message)
         channel, text = args['channel'], f'\n> {args["text"]}\n'
 
@@ -30,7 +43,7 @@ async def on_ready():
                 await queue.ltrim(channel, -max_history, -1)
                 await client.get_channel(channel).send(response)
         except Exception as exc:
-            print(f'Error with message: {exc}')
+            logger.info(f'Error with message: {exc}')
 
         # delete message from queue
         await queue.decr(f'{channel}_msgs')
