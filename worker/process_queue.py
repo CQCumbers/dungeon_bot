@@ -21,15 +21,18 @@ async def on_ready():
         channel, text = args['channel'], f'\n> {args["text"]}\n'
 
         # generate response, update conversation history
-        async with client.get_channel(channel).typing():
-            history = await queue.lrange(channel, 0, max_history - 1)
-            response = await loop.run_in_executor(
-                None, generator.generate, ''.join(history + [text]))
-            await queue.rpush(channel, text, response)
-            await queue.ltrim(channel, -max_history, -1)
+        try:
+            async with client.get_channel(channel).typing():
+                history = await queue.lrange(channel, 0, max_history - 1)
+                response = await loop.run_in_executor(
+                    None, generator.generate, ''.join(history + [text]))
+                await queue.rpush(channel, text, response)
+                await queue.ltrim(channel, -max_history, -1)
+                await client.get_channel(channel).send(response)
+        except Exception as exc:
+            print(f'Error with message: {exc}')
 
-        # send response, delete message from queue
-        await client.get_channel(channel).send(response)
+        # delete message from queue
         await queue.decr(f'{channel}_msgs')
         await queue.lrem('pending', -1, message)
 
