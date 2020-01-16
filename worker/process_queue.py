@@ -28,9 +28,9 @@ async def on_ready():
 
     while True:
         # poll queue for messages, block here if empty
-        message = await queue.brpoplpush('msgs', 'pending')
-        logger.info(f'Processing message: {message}')
-        args = json.loads(message)
+        msg = None
+        while not msg: msg = await queue.brpoplpush('msgs', 'pending', 60)
+        logger.info(f'Processing message: {msg}'); args = json.loads(msg)
         channel, text = args['channel'], f'\n> {args["text"]}\n'
 
         # generate response, update conversation history
@@ -47,7 +47,7 @@ async def on_ready():
 
         # delete message from queue
         await queue.decr(f'{channel}_msgs')
-        await queue.lrem('pending', -1, message)
+        await queue.lrem('pending', -1, msg)
 
 
 if __name__ == '__main__':
