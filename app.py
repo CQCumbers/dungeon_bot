@@ -1,11 +1,13 @@
 import os, json, asyncio, signal, logging
-import aiohttp, aioredis
+import aiohttp, aioredis, discord
 from discord.ext import commands
 
 api_url = 'https://vast.ai/api/v0'
 image = 'cqcumbers/dungeon_worker:0.1.3'
-timeout, max_msgs = 600.0, 4
-bot = commands.Bot(command_prefix='!')
+timeout, max_msgs = 600, 4
+act = discord.Game(name='!help for commands')
+desc = 'View the source code at github.com/CQCumbers/dungeon_bot'
+bot = commands.Bot(command_prefix='!', activity=act, description=desc)
 
 
 async def fetch(session, url, params={}):
@@ -30,7 +32,7 @@ async def create_inst(session):
         'dlperf': {'gte': 9.8}, 'type': 'ask', 'order': [['dphtotal', 'asc']],
     })}
     data = await fetch(session, f'{api_url}/bundles', params)
-    bot.inst_id = data['offers'][0]['id']
+    offer_id = data['offers'][0]['id']
 
     # Create instance using cheapest machine
     onstart = (
@@ -43,7 +45,9 @@ async def create_inst(session):
         'runtype': 'ssh', 'disk': 15.0,
         'label': 'dungeon_worker', 'onstart': onstart,
     }
-    await send(session, f'{api_url}/asks/{bot.inst_id}/', config)
+    await send(session, f'{api_url}/asks/{offer_id}/', config)
+    data = await fetch(session, f'{api_url}/instances', {'owner': 'me'})
+    bot.inst_id = data['instances'][0]['id']
     print(f'Created instance {bot.inst_id}')
 
 
@@ -57,8 +61,7 @@ async def restart_inst(session, insts):
 
 async def stop_inst():
     # wait until no activity and past timeout
-    while bot.loop.time() < bot.stop_time:
-        await asyncio.sleep(1.0)
+    while bot.loop.time() < bot.stop_time: await asyncio.sleep(1)
     # send stop instance request
     async with aiohttp.ClientSession() as session:
         data = {'state': 'stopped'}
@@ -67,15 +70,14 @@ async def stop_inst():
 
 
 async def destroy_inst():
-    await asyncio.sleep(60.0)
+    await asyncio.sleep(120)
+    if len(await bot.queue.client_list()) > 1: return
     async with aiohttp.ClientSession() as session:
-        data = await fetch(session, f'{api_url}/instances', {'owner': 'me'})
         url = f'{api_url}/instances/{bot.inst_id}/'
         params = {'api_key': os.getenv('API_KEY')}
-        if data['instances'][0]['actual_status'] != 'running':
-            await session.delete(url, params=params)
-            print(f'Destroyed instance {bot.inst_id}')
-            bot.inst_id = None; await create_inst(session)
+        await session.delete(url, params=params)
+        print(f'Destroyed instance {bot.inst_id}')
+        bot.inst_id = None; await create_inst(session)
 
 
 async def init_inst(ctx):
