@@ -52,6 +52,7 @@ async def restart_inst(session, insts):
     bot.inst_id, data = insts[0]['id'], {'state': 'running'}
     await send(session, f'{api_url}/instances/{bot.inst_id}/', data)
     print(f'Restarted instance {bot.inst_id}')
+    bot.destroy_inst = bot.loop.create_task(destroy_inst())
 
 
 async def stop_inst():
@@ -63,6 +64,18 @@ async def stop_inst():
         data = {'state': 'stopped'}
         await send(session, f'{api_url}/instances/{bot.inst_id}/', data)
         print(f'Stopped instance {bot.inst_id}'); bot.inst_id = None
+
+
+async def destroy_inst():
+    await asyncio.sleep(60.0)
+    async with aiohttp.ClientSession() as session:
+        data = await fetch(session, f'{api_url}/instances', {'owner': 'me'})
+        url = f'{api_url}/instances/{bot.inst_id}/'
+        params = {'api_key': os.getenv('API_KEY')}
+        if data['instances'][0]['actual_status'] != 'running':
+            await session.delete(url, params=params)
+            print(f'Destroyed instance {bot.inst_id}')
+            bot.inst_id = None; await create_inst(session)
 
 
 async def init_inst(ctx):
