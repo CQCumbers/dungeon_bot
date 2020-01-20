@@ -72,6 +72,7 @@ async def stop_inst():
 async def destroy_inst():
     await asyncio.sleep(120)
     if len(await bot.queue.client_list()) > 1: return
+    # destroy instance if unconnected 2 minutes after restart
     async with aiohttp.ClientSession() as session:
         url = f'{api_url}/instances/{bot.inst_id}/'
         params = {'api_key': os.getenv('API_KEY')}

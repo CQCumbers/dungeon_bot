@@ -41,7 +41,8 @@ async def on_ready():
                     None, generator.generate, ''.join(history + [text]))
                 await queue.rpush(channel, text, response)
                 await queue.ltrim(channel, -max_history, -1)
-                await client.get_channel(channel).send(response)
+                sent = f'> {args["text"]}\n{response}'
+                await client.get_channel(channel).send(sent)
         except Exception as exc:
             logger.info(f'Error with message: {exc}')
 
