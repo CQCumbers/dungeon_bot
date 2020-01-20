@@ -1,4 +1,4 @@
-import os, json, asyncio, signal, logging
+import os, sys, json, asyncio, logging
 import aiohttp, aioredis, discord
 from discord.ext import commands
 
@@ -22,7 +22,6 @@ async def send(session, url, data, params={}):
 
 
 async def create_inst(session):
-    bot.inst_id = 123456789
     # Query available machines
     params = {'q': json.dumps({
         'verified': {'eq': True}, 'external': {'eq': False},
@@ -49,6 +48,7 @@ async def create_inst(session):
     data = await fetch(session, f'{api_url}/instances', {'owner': 'me'})
     bot.inst_id = data['instances'][0]['id']
     print(f'Created instance {bot.inst_id}')
+    bot.check_inst = bot.loop.create_task(check_inst(300))
 
 
 async def restart_inst(session, insts):
@@ -56,32 +56,39 @@ async def restart_inst(session, insts):
     bot.inst_id, data = insts[0]['id'], {'state': 'running'}
     await send(session, f'{api_url}/instances/{bot.inst_id}/', data)
     print(f'Restarted instance {bot.inst_id}')
-    bot.destroy_inst = bot.loop.create_task(destroy_inst())
+    bot.check_inst = bot.loop.create_task(check_inst(120))
 
 
-async def stop_inst():
-    # wait until no activity and past timeout
-    while bot.loop.time() < bot.stop_time: await asyncio.sleep(1)
-    # send stop instance request
-    async with aiohttp.ClientSession() as session:
-        data = {'state': 'stopped'}
-        await send(session, f'{api_url}/instances/{bot.inst_id}/', data)
-        print(f'Stopped instance {bot.inst_id}'); bot.inst_id = None
+async def workers():
+    clients = await bot.queue.client_list()
+    return [c for c in clients if c.name != 'server' and int(c.idle) < 60]
 
 
-async def destroy_inst():
-    await asyncio.sleep(120)
-    if len(await bot.queue.client_list()) > 1: return
-    # destroy instance if unconnected 2 minutes after restart
+async def check_inst(wait):
+    await asyncio.sleep(wait)
+    while len(await workers()) >= 1: await asyncio.sleep(60)
+    # destroy and recreate instance if unconnected
     async with aiohttp.ClientSession() as session:
         url = f'{api_url}/instances/{bot.inst_id}/'
         params = {'api_key': os.getenv('API_KEY')}
         await session.delete(url, params=params)
         print(f'Destroyed instance {bot.inst_id}')
-        bot.inst_id = None; await create_inst(session)
+        bot.inst_id = None
+
+
+async def stop_inst():
+    # wait until no activity and past timeout
+    while bot.loop.time() < bot.stop_time: await asyncio.sleep(1)
+    # stop instance if no activity for 10 minutes
+    async with aiohttp.ClientSession() as session:
+        data = {'state': 'stopped'}
+        await send(session, f'{api_url}/instances/{bot.inst_id}/', data)
+        print(f'Stopped instance {bot.inst_id}')
+        bot.inst_id = None; bot.check_inst.cancel()
 
 
 async def init_inst(ctx):
+    bot.inst_id = 1234567890
     await ctx.send('Initializing instance, please wait')
     # reboot instance, or create one if none exists
     async with aiohttp.ClientSession() as session:
@@ -93,10 +100,18 @@ async def init_inst(ctx):
 
 async def init_queue():
     bot.queue = await aioredis.create_redis_pool(os.getenv('REDIS_URL'))
+    await bot.queue.client_setname('server')
+
+
+@bot.event
+async def on_command_error(ctx, error):
+    if isinstance(error, commands.errors.CommandNotFound): return
+    print('Ignoring exception in command {}:'.format(ctx.command), file=sys.stderr)
+    traceback.print_exception(type(error), error, error.__traceback__, file=sys.stderr)
 
 
 @bot.command(name='next', help='Continues AI Dungeon game')
-async def game_next(ctx, *, text):
+async def game_next(ctx, *, text='continue'):
     message = {'channel': ctx.channel.id, 'text': text}
     bot.stop_time = bot.loop.time() + timeout
 

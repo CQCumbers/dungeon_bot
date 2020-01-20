@@ -37,14 +37,15 @@ async def on_ready():
         try:
             async with client.get_channel(channel).typing():
                 history = await queue.lrange(channel, 0, max_history - 1)
-                response = await loop.run_in_executor(
+                task = loop.run_in_executor(
                     None, generator.generate, ''.join(history + [text]))
+                response = await asyncio.wait_for(task, 60, loop=loop)
                 await queue.rpush(channel, text, response)
                 await queue.ltrim(channel, -max_history, -1)
                 sent = f'> {args["text"]}\n{response}'
                 await client.get_channel(channel).send(sent)
-        except Exception as exc:
-            logger.info(f'Error with message: {exc}')
+        except Exception:
+            logger.info('Error with message: ', exc_info=True)
 
         # delete message from queue
         await queue.decr(f'{channel}_msgs')
