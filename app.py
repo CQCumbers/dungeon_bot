@@ -1,4 +1,4 @@
-import os, sys, json, asyncio, logging
+import os, sys, json, asyncio, logging, traceback
 import aiohttp, aioredis, discord
 from discord.ext import commands
 
@@ -106,6 +106,7 @@ async def init_queue():
 @bot.event
 async def on_command_error(ctx, error):
     if isinstance(error, commands.errors.CommandNotFound): return
+    if isinstance(error.__context__, aiohttp.ContentTypeError): bot.inst_id = None
     print('Ignoring exception in command {}:'.format(ctx.command), file=sys.stderr)
     traceback.print_exception(type(error), error, error.__traceback__, file=sys.stderr)
 
