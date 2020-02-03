@@ -1,4 +1,4 @@
-import os, json, logging, asyncio, aioredis, discord
+import os, re, json, logging, asyncio, aioredis, discord
 from generator.gpt2.gpt2_generator import *
 from logging.handlers import SysLogHandler
 
@@ -16,6 +16,11 @@ max_history = 20
 client = discord.Client()
 generator = GPT2Generator()
 logger.info('Worker instance started')
+
+
+def escape(text):
+    text = re.sub(r'\\(\*|_|`|~|\\|>)', r'\g<1>', text)
+    return re.sub(r'(\*|_|`|~|\\|>)', r'\\\g<1>', text)
 
 
 @client.event
@@ -42,7 +47,7 @@ async def on_ready():
                 response = await asyncio.wait_for(task, 60, loop=loop)
                 await queue.rpush(channel, text, response)
                 await queue.ltrim(channel, -max_history, -1)
-                sent = f'> {args["text"]}\n{response}'
+                sent = f'> {args["text"]}\n{escape(response)}'
                 await client.get_channel(channel).send(sent)
         except Exception:
             logger.info('Error with message: ', exc_info=True)
