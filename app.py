@@ -48,7 +48,7 @@ async def create_inst(session):
     data = await fetch(session, f'{api_url}/instances', {'owner': 'me'})
     bot.inst_id = data['instances'][0]['id']
     print(f'Created instance {bot.inst_id}')
-    bot.check_inst = bot.loop.create_task(check_inst(300))
+    bot.check_inst = bot.loop.create_task(check_inst(180))
 
 
 async def restart_inst(session, insts):
@@ -56,7 +56,7 @@ async def restart_inst(session, insts):
     bot.inst_id, data = insts[0]['id'], {'state': 'running'}
     await send(session, f'{api_url}/instances/{bot.inst_id}/', data)
     print(f'Restarted instance {bot.inst_id}')
-    bot.check_inst = bot.loop.create_task(check_inst(120))
+    bot.check_inst = bot.loop.create_task(check_inst(90))
 
 
 async def workers():
@@ -73,7 +73,9 @@ async def check_inst(wait):
         params = {'api_key': os.getenv('API_KEY')}
         await session.delete(url, params=params)
         print(f'Destroyed instance {bot.inst_id}')
-        bot.inst_id = None
+        bot.inst_id = 1234567890; bot.stop_inst.cancel()
+        await create_inst(session)
+        bot.stop_inst = bot.loop.create_task(stop_inst())
 
 
 async def stop_inst():
