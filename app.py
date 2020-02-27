@@ -50,12 +50,6 @@ async def create_inst(session):
     print(f'Created instance {bot.inst_id}')
     bot.check_inst = bot.loop.create_task(check_inst(180))
 
-    # clean up extra machines, if more than one
-    for extra in data['instances'][1:]:
-        url = f'{api_url}/instances/{extra["id"]}/'
-        params = {'api_key': os.getenv('API_KEY')}
-        await session.delete(url, params=params)
-
 
 async def restart_inst(session, insts):
     # send start instance request to first in list
@@ -79,9 +73,7 @@ async def check_inst(wait):
         params = {'api_key': os.getenv('API_KEY')}
         await session.delete(url, params=params)
         print(f'Destroyed instance {bot.inst_id}')
-        bot.inst_id = 1234567890; bot.stop_inst.cancel()
-        await create_inst(session)
-        bot.stop_inst = bot.loop.create_task(stop_inst())
+        bot.inst_id = None; bot.stop_inst.cancel()
 
 
 async def stop_inst():
