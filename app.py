@@ -106,7 +106,7 @@ async def init_queue():
 @bot.event
 async def on_command_error(ctx, error):
     if isinstance(error, commands.errors.CommandNotFound): return
-    if isinstance(error.__context__, aiohttp.ContentTypeError): bot.inst_id = None
+    if bot.inst_id == 1234567890: bot.inst_id = None
     print('Ignoring exception in command {}:'.format(ctx.command), file=sys.stderr)
     traceback.print_exception(type(error), error, error.__traceback__, file=sys.stderr)
 
