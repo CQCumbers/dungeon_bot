@@ -6,7 +6,10 @@ api_url = 'https://vast.ai/api/v0'
 image = 'cqcumbers/dungeon_worker:0.1.3'
 timeout, max_msgs = 600, 4
 act = discord.Game(name='!help for commands')
-desc = 'View the source code at github.com/CQCumbers/dungeon_bot'
+desc = '''
+View the source code at github.com/CQCumbers/dungeon_bot.
+For security issues or other questions, message CQCumbers#6058.
+'''
 bot = commands.Bot(command_prefix='!', activity=act, description=desc)
 
 

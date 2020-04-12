@@ -47,6 +47,7 @@ async def on_ready():
                 response = await asyncio.wait_for(task, 60, loop=loop)
                 await queue.rpush(channel, text, response)
                 await queue.ltrim(channel, -max_history, -1)
+                await queue.expire(channel, 7 * 24 * 3600)
                 sent = f'> {args["text"]}\n{escape(response)}'
                 await client.get_channel(channel).send(sent)
         except Exception:
