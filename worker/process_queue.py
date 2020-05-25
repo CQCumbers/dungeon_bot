@@ -13,8 +13,11 @@ logger.addHandler(syslog)
 logger.setLevel(logging.INFO)
 
 max_history = 20
+while True:
+    try: generator = GPT2Generator()
+    except: logger.exception('Failed to start GPT2Generator')
+    else: break
 client = discord.Client()
-generator = GPT2Generator()
 logger.info('Worker instance started')
 
 
@@ -30,6 +33,7 @@ async def on_ready():
     loop = asyncio.get_event_loop()
     while await queue.llen('pending'):
         await queue.rpoplpush('pending', 'msgs')
+    logger.info('Waiting for first message')
 
     while True:
         # poll queue for messages, block here if empty
