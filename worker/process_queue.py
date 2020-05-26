@@ -12,6 +12,10 @@ logger = logging.getLogger()
 logger.addHandler(syslog)
 logger.setLevel(logging.INFO)
 
+import tensorflow as tf
+tf.compat.v1.logging.set_verbosity(tf.compat.v1.logging.DEBUG)
+tf.compat.v1.reset_default_graph()
+
 max_history = 20
 generator = GPT2Generator()
 client = discord.Client()
