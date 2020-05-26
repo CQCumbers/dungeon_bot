@@ -29,8 +29,8 @@ async def create_inst(session):
     params = {'q': json.dumps({
         'verified': {'eq': True}, 'external': {'eq': False},
         'rentable': {'eq': True}, 'disk_space': {'gte': 15.0},
-        'gpu_ram': {'gte': 10.0 * 1024}, 'inet_up': {'gte': 100.0},
-        'reliability2': {'gte': 0.98}, 'allocated_storage': 15.0,
+        'gpu_ram': {'gte': 11.0 * 1000}, 'inet_down': {'gte': 500.0},
+        'reliability2': {'gte': 0.9}, 'allocated_storage': 15.0,
         'dlperf': {'gte': 9.8}, 'type': 'ask', 'order': [['dphtotal', 'asc']],
     })}
     data = await fetch(session, f'{api_url}/bundles', params)
@@ -50,19 +50,13 @@ async def create_inst(session):
     await send(session, f'{api_url}/asks/{offer_id}/', config)
     data = await fetch(session, f'{api_url}/instances', {'owner': 'me'})
     bot.inst = data['instances'][-1]['id']
-    print(f'Created instance {bot.inst}')
-
-
-async def start_inst(session, insts):
-    # send start instance request to last in list
-    if not insts: return await create_inst(session)
-    bot.inst, data = insts[-1]['id'], {'state': 'running'}
-    await send(session, f'{api_url}/instances/{bot.inst}/', data)
-    print(f'Restarted instance {bot.inst}')
+    machine = data['instances'][-1]['machine_id']
+    print(f'Created instance {bot.inst} on {machine}')
 
 
 async def delete_inst(session):
     # send delete request to all instances
+    print(f'Destroying instance {bot.inst}')
     data = await fetch(session, f'{api_url}/instances', {'owner': 'me'})
     for inst in data.get('instances'):
         url = f'{api_url}/instances/{inst["id"]}/'
@@ -77,7 +71,6 @@ async def workers():
 
 async def recreate_inst():
     # destroy and recreate instance if unconnected
-    print(f'Destroying instance {bot.inst}')
     async with aiohttp.ClientSession() as session:
         await delete_inst(session)
         await create_inst(session)
@@ -92,9 +85,8 @@ async def check_inst():
         await asyncio.sleep(60)
     # stop instance if no activity for 15 minutes
     async with aiohttp.ClientSession() as session:
-        url = f'{api_url}/instances/{bot.inst}/'
-        await send(session, url, data={'state': 'stopped'})
-    print(f'Stopped instance {bot.inst}'); bot.inst = None
+        await delete_inst(session)
+    bot.inst = None
 
 
 async def init_inst(ctx):
@@ -102,8 +94,7 @@ async def init_inst(ctx):
     if bot.inst is not None: return; bot.inst = 0
     # restart instance, start checkup task
     async with aiohttp.ClientSession() as session:
-        data = await fetch(session, f'{api_url}/instances', {'owner': 'me'})
-        await start_inst(session, data.get('instances'))
+        await create_inst(session)
     bot.check = bot.loop.create_task(check_inst())
 
 

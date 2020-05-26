@@ -13,10 +13,7 @@ logger.addHandler(syslog)
 logger.setLevel(logging.INFO)
 
 max_history = 20
-while True:
-    try: generator = GPT2Generator()
-    except: logger.exception('Failed to start GPT2Generator')
-    else: break
+generator = GPT2Generator()
 client = discord.Client()
 logger.info('Worker instance started')
 
