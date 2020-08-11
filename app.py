@@ -30,10 +30,11 @@ async def create_inst(session):
         'rentable': {'eq': True}, 'disk_space': {'gte': 15.0},
         'gpu_ram': {'gte': 10.0 * 1000}, 'inet_down': {'gte': 100.0},
         'reliability2': {'gte': 0.9}, 'allocated_storage': 15.0,
-        'dlperf': {'gte': 9.8}, 'type': 'ask', 'order': [['dphtotal', 'asc']],
+        'dlperf': {'gte': 9.5}, 'type': 'ask', 'order': [['dphtotal', 'asc']],
     })}
     data = await fetch(session, f'{api_url}/bundles', params)
-    offer_id = data['offers'][0]['id']
+    offers = [o for o in data['offers'] if o['machine_id'] != bot.machine]
+    offer_id = offers[0]['id']
 
     # Create instance using cheapest machine
     onstart = (
@@ -48,8 +49,8 @@ async def create_inst(session):
     }
     await send(session, f'{api_url}/asks/{offer_id}/', config)
     data = await fetch(session, f'{api_url}/instances', {'owner': 'me'})
-    machine = data['instances'][-1]['machine_id']
-    print(f'Created instance on {machine}')
+    bot.machine = data['instances'][-1]['machine_id']
+    print(f'Created instance on {bot.machine}')
 
 
 async def delete_inst(session):
@@ -67,7 +68,7 @@ async def recreate_inst():
     async with aiohttp.ClientSession() as session:
         await delete_inst(session)
         await create_inst(session)
-    await asyncio.sleep(120)
+    await asyncio.sleep(180)
 
 
 async def check_inst():
@@ -121,6 +122,7 @@ if __name__ == '__main__':
     setup = bot.loop.create_task(init_queue())
     bot.loop.run_until_complete(setup)
     check = bot.loop.create_task(check_inst())
+    bot.machine = 0
 
     # start handling discord events
     logging.basicConfig(level=logging.INFO)

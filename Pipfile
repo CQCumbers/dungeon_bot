@@ -9,6 +9,7 @@ verify_ssl = true
 aioredis = "*"
 aiohttp = {extras = ["speedups"],version = "*"}
 discord-py = "*"
+requests = "*"
 
 [requires]
 python_version = "3.7"
