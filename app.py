@@ -3,14 +3,22 @@ import aiohttp, aioredis, discord
 from discord.ext import commands
 
 api_url = 'https://vast.ai/api/v0'
-image = 'cqcumbers/dungeon_worker:0.1.4'
+image = 'cqcumbers/dungeon_worker:0.1.5'
 act = discord.Game(name='!help for commands')
-desc = '''
-View the source code at github.com/CQCumbers/dungeon_bot.
-For security issues or other questions, message CQCumbers#6058.
-'''
-bot = commands.Bot(command_prefix='!', activity=act, description=desc)
+bot = commands.Bot(command_prefix='!', activity=act)
+bot.remove_command('help')
 
+help_text = '''
+**Commands**
+`!help` - Shows information about commands
+`!next [text]` - Continues AI Dungeon game
+`!restart` - Starts the game from beginning
+`!revert` - Undoes the last action
+
+**Links**
+[Invite Link](https://discordapp.com/oauth2/authorize?client_id=664915224595398666&scope=bot)  |  [Source Code](https://github.com/CQCumbers/dungeon_bot)
+For privacy issues or other questions you can message me at CQCumbers#6058
+'''
 
 async def fetch(session, url, params={}):
     params['api_key'] = os.getenv('API_KEY')
@@ -28,7 +36,7 @@ async def create_inst(session):
     params = {'q': json.dumps({
         'verified': {'eq': True}, 'external': {'eq': False},
         'rentable': {'eq': True}, 'disk_space': {'gte': 15.0},
-        'gpu_ram': {'gte': 10.0 * 1000}, 'inet_down': {'gte': 100.0},
+        'gpu_ram': {'gte': 8.0 * 1000}, 'inet_down': {'gte': 100.0},
         'reliability2': {'gte': 0.9}, 'allocated_storage': 15.0,
         'dlperf': {'gte': 9.5}, 'type': 'ask', 'order': [['dphtotal', 'asc']],
     })}
@@ -74,7 +82,7 @@ async def recreate_inst():
 async def check_inst():
     # workers should poll queue every minute
     def worker(client):
-        res = (client.name != 'server')
+        res = (client.name == 'worker')
         return res and int(client.idle) <= 60
 
     # repeatedly check if workers connected
@@ -96,7 +104,7 @@ async def on_command_error(ctx, error):
     traceback.print_exception(type(error), error, error.__traceback__)
 
 
-@bot.command(name='next', help='Continues AI Dungeon game')
+@bot.command(name='next')
 async def game_next(ctx, *, text='continue'):
     message = {'channel': ctx.channel.id, 'text': text}
     await bot.queue.setnx(f'{ctx.channel.id}_msgs', 0)
@@ -105,16 +113,22 @@ async def game_next(ctx, *, text='continue'):
         await bot.queue.lpush('msgs', json.dumps(message))
 
 
-@bot.command(name='restart', help='Starts the game from beginning')
+@bot.command(name='restart')
 async def game_restart(ctx):
     await bot.queue.delete(ctx.channel.id)
     await ctx.send('Restarted game from beginning')
 
 
-@bot.command(name='revert', help='Undoes the last action')
+@bot.command(name='revert')
 async def game_revert(ctx):
     await bot.queue.rpop(ctx.channel.id)
     await ctx.send('Undid last action')
+
+
+@bot.command(name='help')
+async def game_help(ctx):
+    embed = discord.Embed(description=help_text, color=0)
+    await ctx.send(embed=embed)
 
 
 if __name__ == '__main__':

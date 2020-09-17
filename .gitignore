@@ -104,3 +104,4 @@ ENV/
 
 # redis dumps
 *.rdb
+vast.py

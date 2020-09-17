@@ -1,4 +1,5 @@
-import os, re, json, logging, asyncio, aioredis, discord
+import os, re, json, logging, asyncio, aioredis
+from discord import Client, Intents
 from generator.gpt2.gpt2_generator import *
 from logging.handlers import SysLogHandler
 
@@ -14,11 +15,10 @@ logger.setLevel(logging.INFO)
 
 import tensorflow as tf
 tf.compat.v1.logging.set_verbosity(tf.compat.v1.logging.DEBUG)
-tf.compat.v1.reset_default_graph()
 
 max_history = 20
 generator = GPT2Generator()
-client = discord.Client()
+client = Client(intents=Intents.default())
 logger.info('Worker instance started')
 
 
@@ -30,7 +30,9 @@ def escape(text):
 @client.event
 async def on_ready():
     # connect & clear redis queue
+    logger.info('Connecting to redis')
     queue = await aioredis.create_redis_pool(os.getenv('REDIS_URL'))
+    await queue.client_setname('worker')
     loop = asyncio.get_event_loop()
     while await queue.llen('pending'):
         await queue.rpoplpush('pending', 'msgs')
@@ -39,7 +41,7 @@ async def on_ready():
     while True:
         # poll queue for messages, block here if empty
         msg = None
-        while not msg: msg = await queue.brpoplpush('msgs', 'pending', 60)
+        while not msg: msg = await queue.brpoplpush('msgs', 'pending', 10)
         logger.info(f'Processing message: {msg}'); args = json.loads(msg)
         channel, text = args['channel'], f'\n> {args["text"]}\n'
 
