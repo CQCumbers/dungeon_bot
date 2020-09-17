@@ -139,5 +139,5 @@ if __name__ == '__main__':
     bot.machine = 0
 
     # start handling discord events
-    logging.basicConfig(level=logging.INFO)
+    logging.basicConfig(level=logging.ERROR)
     bot.run(os.getenv('DISCORD_TOKEN'))
