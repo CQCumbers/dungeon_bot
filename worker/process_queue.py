@@ -13,6 +13,27 @@ logger = logging.getLogger()
 logger.addHandler(syslog)
 logger.setLevel(logging.INFO)
 
+pull_script = '''
+local u = redis.call("GET", KEYS[1] .. "_hook")
+local v = redis.call("LINDEX", KEYS[1] .. "_text", -1)
+return { u, v }
+'''
+
+# verify inputs (except memory) have not changed
+# push and trim output, maintaining invariants
+push_script = '''
+redis.call("LREM", "pending", -1, KEYS[1])
+local u = redis.call("GET", KEYS[1] .. "_hook")
+local v = redis.call("LINDEX", KEYS[1] .. "_text", -1)
+if u != KEYS[2] || v != KEYS[3] then return 0 end
+
+redis.call("DEL", KEYS[1] .. "_hook")
+redis.call("RPUSH", KEYS[1] .. "_text", KEYS[4])
+redis.call("LTRIM", KEYS[1] .. "_text", -18)
+return 1
+'''
+
+
 import tensorflow as tf
 tf.compat.v1.logging.set_verbosity(tf.compat.v1.logging.DEBUG)
 

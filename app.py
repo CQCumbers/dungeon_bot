@@ -1,29 +1,21 @@
-import os, sys, json, asyncio, logging, traceback
-import aiohttp, aioredis, discord
-from discord.ext import commands
+import os, json, asyncio, datetime, logging, traceback
+import aiohttp, disnake, redis.asyncio
+from disnake.ext import commands
+from redis_scripts import register_scripts
 
 api_url = 'https://vast.ai/api/v0'
-image = 'cqcumbers/dungeon_worker:0.1.5'
-act = discord.Game(name='!help for commands')
-bot = commands.Bot(command_prefix='!', activity=act)
-bot.remove_command('help')
+image = 'cqcumbers/dungeon_worker:0.1.6'
+act = disnake.Game(name='/about for info')
+bot = commands.InteractionBot(activity=act, test_guilds=[664972524739756032])
+logger = logging.getLogger()
 
-help_text = '''
-**Commands**
-`!help` - Shows information about commands
-`!next [text]` - Continues AI Dungeon game
-`!restart` - Starts the game from beginning
-`!revert` - Undoes the last action
-
-**Links**
-[Invite Link](https://discordapp.com/oauth2/authorize?client_id=664915224595398666&scope=bot)  |  [Source Code](https://github.com/CQCumbers/dungeon_bot)
-For privacy issues or other questions you can message me at CQCumbers#6058
-'''
 
 async def fetch(session, url, params={}):
     params['api_key'] = os.getenv('API_KEY')
     async with session.get(url, params=params) as r:
-        return await r.json()
+        if r.status == 200: return await r.json()
+        logger.info(f'Failed to get {url}: {r.status}')
+        return None
 
 
 async def send(session, url, data, params={}):
@@ -41,13 +33,13 @@ async def create_inst(session):
         'dlperf': {'gte': 9.5}, 'type': 'ask', 'order': [['dphtotal', 'asc']],
     })}
     data = await fetch(session, f'{api_url}/bundles', params)
+    if not data: return
     offers = [o for o in data['offers'] if o['machine_id'] != bot.machine]
     offer_id = offers[0]['id']
 
     # Create instance using cheapest machine
     onstart = (
         f'export REDIS_URL={os.getenv("REDIS_EXTERN_URL")}\n'
-        f'export DISCORD_TOKEN={os.getenv("DISCORD_TOKEN")}\n'
         f'export LOG_URL={os.getenv("LOG_URL")}\n'
         f'cd / && python process_queue.py\n')
     config = {
@@ -57,15 +49,17 @@ async def create_inst(session):
     }
     await send(session, f'{api_url}/asks/{offer_id}/', config)
     data = await fetch(session, f'{api_url}/instances', {'owner': 'me'})
+    if not data: return
     bot.machine = data['instances'][-1]['machine_id']
-    print(f'Created instance on {bot.machine}')
+    logger.info(f'Created instance on {bot.machine}')
 
 
 async def delete_inst(session):
     # send delete request to all instances
-    print(f'Destroying all instances')
     data = await fetch(session, f'{api_url}/instances', {'owner': 'me'})
-    for inst in data.get('instances'):
+    if not data: return 
+    for inst in data['instances']:
+        logger.info(f'Destroying instance {inst["id"]}')
         url = f'{api_url}/instances/{inst["id"]}/'
         params = {'api_key': os.getenv('API_KEY')}
         await session.delete(url, params=params)
@@ -73,62 +67,133 @@ async def delete_inst(session):
 
 async def recreate_inst():
     # destroy and recreate instance if unconnected
+    logger.info("Recreating instance")
     async with aiohttp.ClientSession() as session:
         await delete_inst(session)
         await create_inst(session)
     await asyncio.sleep(180)
 
 
+async def clear_inst():
+    async with aiohttp.ClientSession() as session:
+        await delete_inst(session)
+    await asyncio.sleep(180)
+
+
+async def hook_send(hook: str, msg: str):
+    async with aiohttp.ClientSession() as session:
+        wid, token = hook.split(',')
+        webhook = disnake.Webhook.partial(wid, token, session=session)
+        await webhook.send(content=msg)
+
+
+async def clear_hooks():
+    channels_a, channels_b = await bot.queue.run_clear(keys=['msgs', 'pending'])
+    for cid in channels_a + channels_b:
+        logger.info(f'Clearing hook {cid}')
+        hook = await bot.queue.run_undo(keys=[f'{cid}_hook', f'{cid}_text'], args=[0])
+        if hook: await hook_send(hook, 'Action cancelled by server shutdown')
+
+
+async def expire_stories():
+    channel_ids = await bot.queue.run_expire(keys=['expiry'])
+    for cid in channel_ids:
+        logger.info(f'Expiring story {cid}')
+        hook = await bot.queue.run_restart(keys=[f'{cid}_hook', f'{cid}_text', f'{cid}_mem'])
+        if hook: await hook_send(hook, 'Action cancelled by story expiration')
+
+
 async def check_inst():
     # workers should poll queue every minute
     def worker(client):
-        res = (client.name == 'worker')
-        return res and int(client.idle) <= 60
+        res = (client.get('name') == 'worker')
+        return res and int(client.idle) <= 120
 
     # repeatedly check if workers connected
     while True:
-        clients = await bot.queue.client_list()
-        workers = [c for c in clients if worker(c)]
-        if len(workers) == 0: await recreate_inst()
+        try:
+            clients = await bot.queue.client_list()
+            bot.workers = sum(1 for c in clients if worker(c))
+            if bot.workers == 0: await clear_hooks()
+            await expire_stories()
+
+            sleepy = False #datetime.datetime.now().hour < 18
+            if sleepy: await clear_inst()
+            elif bot.workers != 1: await recreate_inst()
+        except Exception:
+            logger.info(traceback.format_exc())
         await asyncio.sleep(60)
 
 
 async def init_queue():
-    bot.queue = await aioredis.create_redis_pool(os.getenv('REDIS_URL'))
+    bot.queue = await redis.asyncio.from_url(os.getenv('REDIS_URL'), decode_responses=True)
     await bot.queue.client_setname('server')
+    register_scripts(bot.queue)
+    logger.info('Registered redis scripts')
 
 
 @bot.event
-async def on_command_error(ctx, error):
-    if isinstance(error, commands.errors.CommandNotFound): return
-    traceback.print_exception(type(error), error, error.__traceback__)
+async def on_slash_command_error(inter, error):
+    lines = traceback.format_exception(type(error), error, error.__traceback__)
+    logger.info(''.join(lines))
 
 
-@bot.command(name='next')
-async def game_next(ctx, *, text='continue'):
-    message = {'channel': ctx.channel.id, 'text': text}
-    await bot.queue.setnx(f'{ctx.channel.id}_msgs', 0)
-    if int(await bot.queue.get(f'{ctx.channel.id}_msgs')) < 4:
-        await bot.queue.incr(f'{ctx.channel.id}_msgs')
-        await bot.queue.lpush('msgs', json.dumps(message))
+@bot.slash_command(description='Generate more of the story')
+async def next(inter, action: str):
+    if bot.workers == 0:
+        sleepy = datetime.datetime.now().hour < 18
+        off_msg = 'asleep' if sleepy else 'offline'
+        return await inter.response.send_message(f'Servers are currently {off_msg}')
+
+    cid = inter.channel_id
+    keys = [f'{cid}_hook', f'{cid}_text', 'msgs', 'expiry']
+    hook = f'{inter.followup.id},{inter.followup.token}'
+    if await bot.queue.run_next(keys=keys, args=[hook, action, cid]):
+        return await inter.response.defer()
+    await inter.response.send_message('Story is already being generated')
 
 
-@bot.command(name='restart')
-async def game_restart(ctx):
-    await bot.queue.delete(ctx.channel.id)
-    await ctx.send('Restarted game from beginning')
+@bot.slash_command(description='Restart the story from the beginning')
+async def restart(inter):
+    cid = inter.channel_id
+    hook = await bot.queue.run_restart(keys=[f'{cid}_hook', f'{cid}_text', f'{cid}_mem'])
+    if hook: await hook_send(hook, 'Action cancelled by restart')
+    await inter.response.send_message('Restarted story from the beginning')
 
 
-@bot.command(name='revert')
-async def game_revert(ctx):
-    await bot.queue.rpop(ctx.channel.id)
-    await ctx.send('Undid last action')
+@bot.slash_command(description='Undo or cancel the most recent action')
+async def undo(inter):
+    cid = inter.channel_id
+    hook = await bot.queue.run_undo(keys=[f'{cid}_hook', f'{cid}_text'], args=[2])
+    if hook: await hook_send(hook, 'Action cancelled by undo')
+    await inter.response.send_message('Undid last action')
 
 
-@bot.command(name='help')
-async def game_help(ctx):
-    embed = discord.Embed(description=help_text, color=0)
-    await ctx.send(embed=embed)
+@bot.slash_command(description='Set persistent memories for the current story')
+async def remember(inter, memory: str):
+    cid = inter.channel_id
+    await bot.queue.run_remember(keys=[f'{cid}_mem', 'expiry'], args=[memory, cid])
+    await inter.response.send_message('Updated story memory')
+
+
+about_text = '''
+**About**
+This is an unofficial bot based on the original open source AI Dungeon 2.
+You can use it to play freeform text adventures with others in the same channel.
+Note that story history is automatically cleared after a week and anyone can
+restart the current story. Servers are currently only online after 6 PM EST,
+to reduce hosting costs.
+
+**Links**
+[Invite Link](https://discordapp.com/oauth2/authorize?client_id=664915224595398666&scope=bot)
+  |  [Source Code](https://github.com/CQCumbers/dungeon_bot)
+For privacy issues or other questions message me at CQCumbers#6058
+'''
+
+@bot.slash_command(description='Show info about this bot')
+async def about(inter):
+    embed = disnake.Embed(description=about_text, color=0)
+    await inter.response.send_message(embed=embed)
 
 
 if __name__ == '__main__':
@@ -136,8 +201,8 @@ if __name__ == '__main__':
     setup = bot.loop.create_task(init_queue())
     bot.loop.run_until_complete(setup)
     check = bot.loop.create_task(check_inst())
-    bot.machine = 0
+    bot.machine, bot.workers = 0, 0
 
     # start handling discord events
-    logging.basicConfig(level=logging.ERROR)
+    logging.basicConfig(level=logging.INFO)
     bot.run(os.getenv('DISCORD_TOKEN'))
