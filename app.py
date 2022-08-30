@@ -10,6 +10,11 @@ bot = commands.InteractionBot(activity=act, test_guilds=[664972524739756032])
 logger = logging.getLogger()
 
 
+def sleepy():
+    hour = datetime.datetime.now().hour
+    return hour in range(4, 22)
+
+
 async def fetch(session, url, params={}):
     params['api_key'] = os.getenv('API_KEY')
     async with session.get(url, params=params) as r:
@@ -28,9 +33,10 @@ async def create_inst(session):
     params = {'q': json.dumps({
         'verified': {'eq': True}, 'external': {'eq': False},
         'rentable': {'eq': True}, 'disk_space': {'gte': 15.0},
+        'cuda_max_good': {'gte': 11.2}, 'gpu_name': {'eq': 'RTX 3090'},
         'gpu_ram': {'gte': 8.0 * 1000}, 'inet_down': {'gte': 100.0},
         'reliability2': {'gte': 0.9}, 'allocated_storage': 15.0,
-        'dlperf': {'gte': 9.5}, 'type': 'ask', 'order': [['dphtotal', 'asc']],
+        'type': 'ask', 'order': [['dphtotal', 'asc']],
     })}
     data = await fetch(session, f'{api_url}/bundles', params)
     if not data: return
@@ -41,7 +47,7 @@ async def create_inst(session):
     onstart = (
         f'export REDIS_URL={os.getenv("REDIS_EXTERN_URL")}\n'
         f'export LOG_URL={os.getenv("LOG_URL")}\n'
-        f'cd / && python process_queue.py\n')
+        f'cd / && python3 process_queue.py\n')
     config = {
         'client_id': 'me', 'image': image,
         'runtype': 'ssh', 'disk': 15.0,
@@ -71,7 +77,7 @@ async def recreate_inst():
     async with aiohttp.ClientSession() as session:
         await delete_inst(session)
         await create_inst(session)
-    await asyncio.sleep(180)
+    await asyncio.sleep(240)
 
 
 async def clear_inst():
@@ -107,7 +113,7 @@ async def check_inst():
     # workers should poll queue every minute
     def worker(client):
         res = (client.get('name') == 'worker')
-        return res and int(client.idle) <= 120
+        return res and int(client['idle']) <= 120
 
     # repeatedly check if workers connected
     while True:
@@ -117,8 +123,7 @@ async def check_inst():
             if bot.workers == 0: await clear_hooks()
             await expire_stories()
 
-            sleepy = False #datetime.datetime.now().hour < 18
-            if sleepy: await clear_inst()
+            if sleepy(): await clear_inst()
             elif bot.workers != 1: await recreate_inst()
         except Exception:
             logger.info(traceback.format_exc())
@@ -141,8 +146,7 @@ async def on_slash_command_error(inter, error):
 @bot.slash_command(description='Generate more of the story')
 async def next(inter, action: str):
     if bot.workers == 0:
-        sleepy = datetime.datetime.now().hour < 18
-        off_msg = 'asleep' if sleepy else 'offline'
+        off_msg = 'asleep' if sleepy() else 'offline'
         return await inter.response.send_message(f'Servers are currently {off_msg}')
 
     cid = inter.channel_id

@@ -1,14 +1,11 @@
-FROM tensorflow/tensorflow:1.15.2-gpu-py3
+FROM huggingface/transformers-pytorch-gpu:4.21.2
 LABEL authors="Alexander Zhang"
 
 RUN apt-get update && \
-    apt-get install -y aria2 wget && \
-	apt-get -y autoremove && \
+    apt-get install -y git git-lfs && \
 	rm -rf /var/lib/apt/lists/*
 
-ENV REPO_URL https://github.com/aidungeon/aidungeon/tarball/591f318
-
-RUN curl -LJ "$REPO_URL" | tar xz --strip-components=1 && ./download_model.sh
-RUN pip install gsutil numpy profanityfilter pyyaml regex tracery
-RUN pip install aioredis discord.py
+RUN git lfs install
+RUN git clone https://huggingface.co/KoboldAI/fairseq-dense-2.7B
+RUN pip install aiohttp disnake redis
 COPY process_queue.py /
