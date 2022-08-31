@@ -6,7 +6,7 @@ from redis_scripts import register_scripts
 api_url = 'https://vast.ai/api/v0'
 image = 'cqcumbers/dungeon_worker:0.1.6'
 act = disnake.Game(name='/about for info')
-bot = commands.InteractionBot(activity=act, test_guilds=[664972524739756032])
+bot = commands.InteractionBot(activity=act)
 logger = logging.getLogger()
 
 
@@ -71,19 +71,19 @@ async def delete_inst(session):
         await session.delete(url, params=params)
 
 
-async def recreate_inst():
+async def recreate_inst(now):
     # destroy and recreate instance if unconnected
-    logger.info("Recreating instance")
+    logger.info(f"Recreating instance, time {now}")
     async with aiohttp.ClientSession() as session:
         await delete_inst(session)
         await create_inst(session)
-    await asyncio.sleep(240)
+    return now + 360
 
 
-async def clear_inst():
+async def clear_inst(now):
     async with aiohttp.ClientSession() as session:
         await delete_inst(session)
-    await asyncio.sleep(180)
+    return now + 600
 
 
 async def hook_send(hook: str, msg: str):
@@ -113,9 +113,10 @@ async def check_inst():
     # workers should poll queue every minute
     def worker(client):
         res = (client.get('name') == 'worker')
-        return res and int(client['idle']) <= 120
+        return res and int(client['idle']) <= 180
 
     # repeatedly check if workers connected
+    next_clear = next_create = 0
     while True:
         try:
             clients = await bot.queue.client_list()
@@ -123,8 +124,11 @@ async def check_inst():
             if bot.workers == 0: await clear_hooks()
             await expire_stories()
 
-            if sleepy(): await clear_inst()
-            elif bot.workers != 1: await recreate_inst()
+            now, asleep = bot.loop.time(), sleepy()
+            if asleep and now > next_clear:
+                next_clear = await clear_inst(now)
+            if not asleep and bot.workers != 1 and now > next_create:
+                next_create = await recreate_inst(now)
         except Exception:
             logger.info(traceback.format_exc())
         await asyncio.sleep(60)

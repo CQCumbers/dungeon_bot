@@ -31,16 +31,16 @@ return { h, t, m }
 
 # verify hook unchanged, push and trim output
 push_script = '''
-if redis.call("GET", KEYS[1]) != ARGV[1] then return 0 end
+if redis.call("GET", KEYS[1]) ~= ARGV[1] then return 0 end
 redis.call("DEL", KEYS[1])
 redis.call("RPUSH", KEYS[2], ARGV[2])
-redis.call("LTRIM", KEYS[2], -18)
+redis.call("LTRIM", KEYS[2], -18, -1)
 return 1
 '''
 
 # verify hook unchanged, delete hook and cancel
 error_script = '''
-if redis.call("GET", KEYS[1]) != ARGV[1] then return 0 end
+if redis.call("GET", KEYS[1]) ~= ARGV[1] then return 0 end
 redis.call("DEL", KEYS[1])
 redis.call("RPOP", KEYS[2], h and 1 or 0])
 '''
@@ -60,15 +60,16 @@ async def hook_send(hook, embed=None, content=None):
     async with aiohttp.ClientSession() as session:
         wid, token = hook.split(',')
         webhook = disnake.Webhook.partial(wid, token, session=session)
-        await webhook.send(embed=embed, content=msg)
+        await webhook.send(embed=embed, content=content)
 
 
 def generate(input_str):
-    input_ids = tokenizer.encode(input_str, return_tensors='pt').to('cuda:0')
+    input_ids = tokenizer.encode(input_str, return_tensors='pt')
+    input_ids = input_ids[..., -160:].to('cuda:0')
     output_ids = model.generate(input_ids, min_length=input_ids.shape[-1] + 20,
-        do_sample=True, max_length=100, top_k=50, top_p=0.95)
-    output_str = tokenizer.decode(output_ids[0], skip_special_tokens=True)
-    return output_str[len(input_str):]
+        do_sample=True, max_length=200, top_k=50, top_p=0.95)
+    output_ids = output_ids[0][..., input_ids.shape[-1]:]
+    return tokenizer.decode(output_ids, skip_special_tokens=True)
 
 
 async def main():
@@ -104,10 +105,10 @@ async def main():
             # cancel and send discord error
             logger.info('Error with message: ', exc_info=True)
             if await queue.run_error(keys=[f'{cid}_hook', f'{cid}_text'], args=[hook]):
-                await hook_send(hook, content='Action cancelled by inferenece failure')
+                await hook_send(hook, content='Action cancelled by inference failure')
 
         # delete message from queue
-        await queue.lrem('pending', -1, msg)
+        await queue.lrem('pending', -1, cid)
 
 
 if __name__ == '__main__':
